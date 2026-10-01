@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wedding Carousel</title>
+  </head>
+  <body>
+    <div id="app">
+      <main id="stage">
+        <canvas id="canvas"></canvas>
+        <div id="hover" hidden>
+          <button data-act="feature" title="Feature: give this photo its own full-height column">★</button>
+          <button data-act="hide" title="Hide this photo">Hide</button>
+        </div>
+        <section id="empty">
+          <h1>Wedding Carousel</h1>
+          <p>Drag your photo folders here</p>
+          <p class="muted">JPEG · PNG · WebP · HEIC — folders are searched recursively. Photos never leave this computer.</p>
+          <div class="row">
+            <button class="primary" data-pick="folder">Choose folder…</button>
+            <button data-pick="files">Choose files…</button>
+          </div>
+        </section>
+        <div id="progress" hidden><div class="label"></div><div class="track"><div class="fill"></div></div></div>
+        <div id="dropHint" hidden>Drop to add photos</div>
+      </main>
+
+      <footer id="bar">
+        <button id="play" title="Play / pause (Space)">❚❚</button>
+        <input id="scrub" type="range" min="0" max="10000" value="0" title="Position in the loop" />
+        <span id="time" class="mono">0:00 / 0:00</span>
+        <label class="speed" title="Seconds for the strip to travel one screen width">
+          Speed <input id="speed" type="range" min="10" max="60" step="1" />
+          <span id="speedVal" class="mono"></span>
+        </label>
+        <button id="settingsBtn">Settings</button>
+        <button id="fsBtn" class="primary" title="Full screen (F)">Full screen</button>
+      </footer>
+
+      <aside id="drawer" hidden>
+        <header><h2>Settings</h2><button id="closeDrawer" title="Close">✕</button></header>
+
+        <h3>Title</h3>
+        <label class="check"><input id="showTitle" type="checkbox" /> Show title</label>
+        <input id="title" type="text" placeholder="Before the Vows" />
+        <div id="fonts" class="fonts"></div>
+
+        <h3>Colours</h3>
+        <div id="swatches" class="swatches"></div>
+        <label class="field">Background <input id="bgColor" type="color" /></label>
+        <label class="field">Title colour <input id="titleColor" type="color" />
+          <label class="check"><input id="autoTitleColor" type="checkbox" /> Auto</label></label>
+
+        <h3>Photos <span id="count" class="muted"></span></h3>
+        <div class="row wrap">
+          <button data-pick="folder">Add folder…</button>
+          <button data-pick="files">Add files…</button>
+          <button id="reshuffle" title="New random order">Reshuffle</button>
+          <button id="clear" class="danger">Clear all</button>
+        </div>
+        <p class="muted small">Pause, then hover a photo to feature ★ or hide it.</p>
+
+        <details id="hiddenBox"><summary>Hidden (<span id="hiddenCount">0</span>)</summary><ul id="hiddenList" class="thumbs"></ul></details>
+        <details id="errorBox" hidden><summary>Couldn't read (<span id="errorCount">0</span>)</summary><ul id="errorList" class="small"></ul></details>
+        <details id="paddedBox" hidden><summary>Shown with padding (<span id="paddedCount">0</span>)</summary><ul id="paddedList" class="small"></ul></details>
+      </aside>
+
+      <input id="pickFolder" type="file" webkitdirectory multiple hidden />
+      <input id="pickFiles" type="file" accept="image/*,.heic,.heif" multiple hidden />
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

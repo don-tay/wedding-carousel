@@ -1,0 +1,15 @@
+node_modules/
+dist/
+test-photos/
+test-results/
+playwright-report/
+*.heic
+*.HEIC
+*.jpg
+*.jpeg
+*.JPG
+*.png
+!docs/*.png
+*.webp
+.DS_Store
+.openchamber/
