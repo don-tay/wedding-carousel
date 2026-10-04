@@ -23,6 +23,8 @@ export interface IngestError {
 }
 
 const IMAGE = /\.(jpe?g|png|webp|heic|heif)$/i;
+const ACCEPT = /\.(jpe?g|png|webp|heic|heif|json)$/i; // images + the settings file
+export const isImage = (path: string) => IMAGE.test(path);
 const HEIC = /\.(heic|heif)$/i;
 
 // ---------- collecting files ----------
@@ -31,13 +33,24 @@ const HEIC = /\.(heic|heif)$/i;
 export function collectDropped(dt: DataTransfer): Promise<FileEntry[]> {
   const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter((e): e is FileSystemEntry => !!e);
   if (!entries.length) return Promise.resolve(fromFileList(dt.files));
-  return Promise.all(entries.map(walk)).then((r) => r.flat().filter((f) => IMAGE.test(f.path)));
+  return Promise.all(entries.map(walk)).then((r) => r.flat().filter((f) => ACCEPT.test(f.path)));
 }
 
 export function fromFileList(files: FileList | File[]): FileEntry[] {
   return [...files]
     .map((file) => ({ file, path: file.webkitRelativePath || file.name }))
-    .filter((f) => IMAGE.test(f.path));
+    .filter((f) => ACCEPT.test(f.path));
+}
+
+/** Chrome: files under a folder handle (from showDirectoryPicker or a drop). */
+export async function walkHandle(dir: FileSystemDirectoryHandle, prefix = dir.name): Promise<FileEntry[]> {
+  const out: FileEntry[] = [];
+  for await (const h of (dir as any).values() as AsyncIterable<FileSystemHandle>) {
+    const path = `${prefix}/${h.name}`;
+    if (h.kind === 'directory') out.push(...(await walkHandle(h as FileSystemDirectoryHandle, path)));
+    else if (ACCEPT.test(h.name)) out.push({ file: await (h as FileSystemFileHandle).getFile(), path });
+  }
+  return out.sort((a, b) => (a.path < b.path ? -1 : 1));
 }
 
 async function walk(entry: FileSystemEntry): Promise<FileEntry[]> {

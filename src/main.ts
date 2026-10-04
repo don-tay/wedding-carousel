@@ -7,11 +7,13 @@ import '@fontsource/jost/latin-400.css';
 import '@fontsource/jost/latin-500.css';
 import './style.css';
 
-import { collectDropped, decodeAll, fromFileList, type FileEntry, type IngestError, type Photo } from './ingest';
+import { adopt, CONFIG_NAME, mergeConfigs, serializeConfig, type PhotoMap } from './config';
+import { askToWrite, canWrite, downloadConfig, droppedHandles, hasFolderPicker, pickFolder, readRoots, writeConfig } from './folder';
+import { collectDropped, decodeAll, fromFileList, isImage, walkHandle, type FileEntry, type IngestError, type Photo } from './ingest';
 import { buildLayout, type Layout } from './layout';
 import { findDuplicates, isSimilar, shuffle, spreadSimilar } from './order';
 import { Renderer } from './renderer';
-import { BACKGROUNDS, FONTS, setKey, store, titleColor, type FontKey, type Settings } from './settings';
+import { BACKGROUNDS, DEFAULTS, FONTS, setKey, store, titleColor, type FontKey, type PhotoFlags, type Settings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const app = $('#app');
@@ -29,6 +31,24 @@ let phase = 0;
 let playing = true;
 let scrubbing = false;
 
+/** Where wedding-carousel.json is saved: the first dropped folder. */
+interface Target {
+  name: string;
+  handle?: FileSystemDirectoryHandle; // Chrome only
+  writable: boolean;
+  broken: boolean; // its existing file is unreadable: never overwrite without asking
+}
+const file = {
+  target: null as Target | null,
+  carried: {} as PhotoMap, // entries from the file for photos not currently loaded (kept on save)
+  loaded: false, // settings came from a file
+  dirty: false, // changes not yet in the folder
+  saving: false,
+  downloaded: false,
+  error: '',
+  warnings: [] as string[],
+};
+
 const renderer = new Renderer($<HTMLCanvasElement>('#canvas'), styleFrom(settings));
 
 function styleFrom(s: Settings) {
@@ -42,12 +62,14 @@ function update(patch: Partial<Settings>) {
   document.body.style.background = settings.background;
   if ('seed' in patch) rebuild();
   syncControls();
+  if (Object.keys(patch).length) changed();
 }
 
-function setFlag(id: string, patch: Partial<(typeof flags)[string]>) {
+function setFlag(id: string, patch: Partial<PhotoFlags>) {
   flags = { ...flags, [id]: { ...flags[id], ...patch } };
   store.saveFlags(flags);
   rebuild();
+  changed();
 }
 
 /** Recompute duplicates, order and layout from the current photos, flags and seed. */
@@ -73,30 +95,73 @@ function rebuild() {
 }
 
 // ---------- adding photos ----------
-async function addEntries(entries: FileEntry[]) {
+async function addEntries(entries: FileEntry[], handles: FileSystemDirectoryHandle[] = []) {
   const seen = new Set(photos.keys());
-  const fresh = entries.filter(({ file }) => {
+  const fresh = entries.filter(({ file, path }) => {
     const id = `${file.name}|${file.size}`;
-    return !seen.has(id) && !!seen.add(id);
+    return isImage(path) && !seen.has(id) && !!seen.add(id);
   });
-  if (!fresh.length) return;
-  const box = $('#progress');
-  const heic = fresh.some((e) => /\.hei[cf]$/i.test(e.path));
-  box.hidden = false;
-  document.body.classList.add('loading');
-  const res = await decodeAll(fresh, (done, total) => {
-    $('#progress .label').textContent =
-      `Reading photos… ${done} / ${total}` + (heic ? ' — HEIC photos can take a moment in Chrome' : '');
-    $('#progress .fill').style.width = `${(100 * done) / total}%`;
-  });
-  box.hidden = true;
-  document.body.classList.remove('loading');
-  for (const p of res.photos) photos.set(p.id, p);
-  errors = [...errors, ...res.errors];
-  key = setKey([...photos.keys()]);
-  settings = store.loadSettings(key);
+  const { roots, warnings } = await readRoots(entries);
+  if (fresh.length) {
+    const box = $('#progress');
+    const heic = fresh.some((e) => /\.hei[cf]$/i.test(e.path));
+    box.hidden = false;
+    document.body.classList.add('loading');
+    const res = await decodeAll(fresh, (done, total) => {
+      $('#progress .label').textContent =
+        `Reading photos… ${done} / ${total}` + (heic ? ' — HEIC photos can take a moment in Chrome' : '');
+      $('#progress .fill').style.width = `${(100 * done) / total}%`;
+    });
+    box.hidden = true;
+    document.body.classList.remove('loading');
+    for (const p of res.photos) photos.set(p.id, p);
+    errors = [...errors, ...res.errors];
+  }
+  if (!photos.size) return;
+  file.warnings = [...new Set([...file.warnings, ...warnings])];
+
+  const ids = [...photos.keys()];
+  key = setKey(ids);
+  const configs = roots.flatMap((r) => (r.config ? [r.config] : []));
+  if (configs.length) {
+    // The folder's file wins: its look, and its choice (or no choice) for every loaded photo.
+    const merged = mergeConfigs(configs);
+    const { matched, rest } = adopt({ ...merged.photos, ...file.carried }, ids);
+    flags = { ...flags };
+    for (const id of ids) {
+      if (matched[id]) flags[id] = matched[id];
+      else delete flags[id];
+    }
+    file.carried = rest;
+    settings = { ...DEFAULTS, ...merged.settings };
+    Object.assign(file, { loaded: true, dirty: false, downloaded: false });
+  } else {
+    const { matched, rest } = adopt(file.carried, ids.filter((id) => !flags[id]));
+    flags = { ...flags, ...matched };
+    file.carried = rest;
+    settings = store.loadSettings(key);
+    if (!file.loaded) file.dirty = true; // first save/download puts this browser's settings in the folder
+  }
+  store.saveFlags(flags);
+  store.saveSettings(key, settings);
+
+  if (!file.target && roots.length) {
+    const first = roots[0];
+    const handle = handles.find((h) => h.name === first.name) ?? (handles.length === 1 ? handles[0] : undefined);
+    await useTarget({ name: first.name, handle, writable: false, broken: !!first.broken });
+  }
   update({});
   rebuild();
+  renderFileStatus();
+}
+
+async function useTarget(t: Target) {
+  file.target = t;
+  if (t.handle && !t.broken && (await canWrite(t.handle))) {
+    t.writable = true;
+    if (file.dirty) saveSoon(0);
+  }
+  renderFileStatus();
 }
 
 function clearAll() {
@@ -104,9 +169,91 @@ function clearAll() {
   photos.clear();
   errors = [];
   key = null;
+  Object.assign(file, { target: null, carried: {}, loaded: false, dirty: false, downloaded: false, error: '', warnings: [] });
   renderer.clearCache();
   phase = 0;
   rebuild();
+  renderFileStatus();
+}
+
+// ---------- the settings file ----------
+function configText(): string {
+  const mine: PhotoMap = {};
+  for (const id of photos.keys()) if (flags[id]) mine[id] = flags[id];
+  return serializeConfig(settings, { ...file.carried, ...mine });
+}
+
+let saveTimer = 0;
+function changed() {
+  if (!photos.size) return;
+  file.dirty = true;
+  file.downloaded = false;
+  saveSoon(1000);
+  renderFileStatus();
+}
+function saveSoon(ms: number) {
+  if (!file.target?.writable) return;
+  clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(saveNow, ms);
+}
+async function saveNow() {
+  const t = file.target;
+  if (!t?.handle || !t.writable) return;
+  file.saving = true;
+  renderFileStatus();
+  try {
+    await writeConfig(t.handle, configText());
+    Object.assign(file, { dirty: false, error: '' });
+  } catch (e) {
+    file.error = e instanceof Error ? e.message : String(e);
+  }
+  file.saving = false;
+  renderFileStatus();
+}
+async function allowSaving() {
+  const t = file.target;
+  if (!t?.handle) return;
+  if (t.broken && !confirm(`Replace the unreadable ${CONFIG_NAME} in “${t.name}” with the current settings?`)) return;
+  if (!(await askToWrite(t.handle))) return;
+  Object.assign(t, { writable: true, broken: false });
+  file.warnings = file.warnings.filter((w) => !w.includes("couldn't be read"));
+  await saveNow();
+}
+
+function renderFileStatus() {
+  const t = file.target;
+  const where = t?.name ? `“${t.name}”` : 'your photo folder';
+  let bar = '';
+  let info = '';
+  if (!photos.size) info = '';
+  else if (file.saving) bar = info = 'Saving…';
+  else if (file.error) {
+    bar = 'Save failed ●';
+    info = `Couldn't save to ${where}: ${file.error}. Use “Download settings file” instead.`;
+  } else if (t?.writable) {
+    bar = file.dirty ? 'Saving…' : 'Saved to folder ✓';
+    info = `Changes save automatically to ${CONFIG_NAME} in ${where}, so any computer that opens this folder gets them.`;
+  } else if (file.dirty) {
+    bar = 'Unsaved changes ●';
+    info = t?.handle
+      ? `Changes are only in this browser. Click “Allow saving to this folder” to keep them in ${where}.`
+      : `Changes are only in this browser. Download the settings file and move it into ${where}.`;
+  } else if (file.downloaded) {
+    info = `Downloaded ${CONFIG_NAME}. Move it from Downloads into ${where} so other computers pick it up.`;
+  } else if (file.loaded) info = `Settings loaded from ${CONFIG_NAME} in ${where}.`;
+
+  const status = $('#saveStatus');
+  status.textContent = bar;
+  status.hidden = !bar;
+  status.classList.toggle('warn', bar.includes('●'));
+  $('#configInfo').textContent = info;
+  $('#fileBox').hidden = !photos.size;
+  const allow = $('#allowSave');
+  allow.hidden = !(t?.handle && !t.writable);
+  allow.textContent = t?.broken ? `Replace unreadable ${CONFIG_NAME}…` : 'Allow saving to this folder';
+  $('#configWarnings').replaceChildren(
+    ...file.warnings.map((w) => Object.assign(document.createElement('li'), { textContent: w })),
+  );
 }
 
 // ---------- animation clock ----------
@@ -229,10 +376,21 @@ window.addEventListener('dragleave', (e) => {
 window.addEventListener('drop', (e) => {
   e.preventDefault();
   hint.hidden = true;
-  if (e.dataTransfer) collectDropped(e.dataTransfer).then(addEntries);
+  if (!e.dataTransfer) return;
+  const handles = droppedHandles(e.dataTransfer); // both must start synchronously in the event
+  collectDropped(e.dataTransfer).then(async (entries) => addEntries(entries, await handles));
 });
 for (const b of document.querySelectorAll<HTMLElement>('[data-pick]')) {
-  b.onclick = () => $(b.dataset.pick === 'folder' ? '#pickFolder' : '#pickFiles').click();
+  b.onclick = async () => {
+    if (b.dataset.pick !== 'folder') return $('#pickFiles').click();
+    if (!hasFolderPicker()) return $('#pickFolder').click(); // Safari
+    try {
+      const dir = await pickFolder(); // Chrome: a folder handle we can later save into
+      await addEntries(await walkHandle(dir), [dir]);
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') alert(`Couldn't open that folder: ${(err as Error).message}`);
+    }
+  };
 }
 for (const id of ['#pickFolder', '#pickFiles']) {
   const input = $<HTMLInputElement>(id);
@@ -251,6 +409,13 @@ $<HTMLInputElement>('#titleColor').oninput = (e) => update({ titleColor: (e.targ
 $<HTMLInputElement>('#autoTitleColor').onchange = (e) =>
   update({ titleColor: (e.target as HTMLInputElement).checked ? null : titleColor(settings) });
 $('#reshuffle').onclick = () => update({ seed: (Math.random() * 2 ** 31) | 0 });
+$('#allowSave').onclick = allowSaving;
+$('#downloadConfig').onclick = () => {
+  downloadConfig(configText());
+  Object.assign(file, { dirty: file.target?.writable ? file.dirty : false, downloaded: !file.target?.writable });
+  renderFileStatus();
+};
+$('#saveStatus').onclick = () => ($('#drawer').hidden = false);
 $('#clear').onclick = () => confirm('Remove all photos from the carousel?') && clearAll();
 
 const fontBox = $('#fonts');
@@ -326,6 +491,7 @@ function renderLists() {
 document.fonts.ready.then(() => Object.values(FONTS).forEach((f) => document.fonts.load(f.css.replace('1em', '40px'))));
 update({});
 rebuild();
+renderFileStatus();
 
 // Test/debug hook (used by the Playwright suite).
 Object.assign(window, {
@@ -336,6 +502,11 @@ Object.assign(window, {
     layout: () => layout,
     renderer,
     dupOf: () => dupOf,
+    flags: () => flags,
+    file,
+    configText,
+    /** Use a folder handle as the save target (tests use browser-private storage, which needs no prompt). */
+    useFolder: (handle: FileSystemDirectoryHandle) => useTarget({ name: handle.name, handle, writable: false, broken: false }),
     errors: () => errors,
     photos,
   },

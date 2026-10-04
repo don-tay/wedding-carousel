@@ -34,6 +34,7 @@
           Speed <input id="speed" type="range" min="10" max="60" step="1" />
           <span id="speedVal" class="mono"></span>
         </label>
+        <button id="saveStatus" hidden title="Settings file"></button>
         <button id="settingsBtn">Settings</button>
         <button id="fsBtn" class="primary" title="Full screen (F)">Full screen</button>
       </footer>
@@ -60,6 +61,16 @@
           <button id="clear" class="danger">Clear all</button>
         </div>
         <p class="muted small">Pause, then hover a photo to feature ★ or hide it.</p>
+
+        <section id="fileBox" hidden>
+          <h3>Settings file</h3>
+          <p id="configInfo" class="small"></p>
+          <div class="row wrap">
+            <button id="allowSave" class="primary" hidden>Allow saving to this folder</button>
+            <button id="downloadConfig">Download settings file</button>
+          </div>
+          <ul id="configWarnings" class="small warn"></ul>
+        </section>
 
         <details id="hiddenBox"><summary>Hidden (<span id="hiddenCount">0</span>)</summary><ul id="hiddenList" class="thumbs"></ul></details>
         <details id="errorBox" hidden><summary>Couldn't read (<span id="errorCount">0</span>)</summary><ul id="errorList" class="small"></ul></details>

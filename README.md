@@ -28,7 +28,22 @@ To run it, **double-click `dist/index.html`**, or copy that one file to the othe
 - **Speed** is set in *seconds per screen width* (10–60, default 25). The bar shows the resulting full-loop length.
 - **Feature or hide a photo:** pause, then hover over a photo. ★ gives it a full-height column of its own, and **Hide** removes it from the loop. Hidden photos are listed under *Settings → Hidden* with a **Restore** button.
 - **Reshuffle** picks a new random order. The order stays the same across reloads until you reshuffle.
-- **Remembered:** the title, font, colours, speed and shuffle are saved per photo set, and featured/hidden choices are saved per photo, all in the browser's `localStorage`. The photos themselves are not stored, so after a reload you drop the folder again and everything comes back as you left it.
+- **Remembered in this browser:** the title, font, colours, speed and shuffle are saved per photo set, and featured/hidden choices are saved per photo, all in the browser's `localStorage`. The photos themselves are not stored, so after a reload you drop the folder again and everything comes back as you left it.
+
+## Take your settings to another computer
+
+Your settings for a photo set can be saved as **`wedding-carousel.json`** at the top of the folder you drop. If the folder is in iCloud Drive (or anything else that syncs), any computer that opens that folder gets the same title, font, colours, speed, shuffle order, and ★/hidden photos.
+
+| Browser | How it saves |
+|---|---|
+| **Chrome** | Click **Settings → Allow saving to this folder** once. After that, every change is saved into the folder automatically about a second later. The bar shows *Saved to folder ✓*. |
+| **Safari** | Safari can't write to folders. The bar shows **Unsaved changes ●**. Click **Settings → Download settings file**, then move `wedding-carousel.json` from Downloads into the photo folder. |
+
+- **The folder's file wins.** When you drop a folder that contains the file, its settings replace whatever this browser remembered.
+- **Without a file**, this browser's settings are used as before, and the first save or download puts them into the folder.
+- **Photos are matched by filename and size**, falling back to the filename alone, so a re-exported copy keeps its ★ or hidden mark. Marks for photos that aren't currently in the folder are kept in the file.
+- **Dropping several folders:** the first folder's file sets the look, photo choices from all the files are combined, and saves go to the first folder.
+- **iCloud conflict copies** (for example `wedding-carousel 2.json`) are ignored and listed with a warning. An **unreadable** file is reported and never overwritten unless you click *Replace*.
 
 ## How it works
 

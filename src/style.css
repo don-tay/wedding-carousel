@@ -94,3 +94,9 @@ summary { cursor: pointer; }
 .thumbs li { display: flex; gap: 0.6em; align-items: center; font-size: 0.85em; }
 .thumbs canvas { width: 56px; height: 42px; object-fit: contain; background: #eee5d8; border-radius: 4px; }
 .thumbs span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+#saveStatus { font-size: 0.9em; color: var(--muted); }
+#saveStatus.warn { color: #a04a3c; border-color: rgba(160, 74, 60, 0.4); }
+ul.warn { color: #a04a3c; padding-left: 1.1em; }
+ul.warn:empty { display: none; }
+#configInfo { margin: 0.2em 0 0.6em; }
